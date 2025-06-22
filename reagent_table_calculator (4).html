@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Reagent Table</title>
+  <style>
+    body {
+      font-family: sans-serif;
+      padding: 20px;
+      background-color: #fff;
+      color: #000;
+    }
+    table {
+      border-collapse: collapse;
+      width: auto;
+    }
+    th, td {
+      border: 1px solid #ccc;
+      padding: 6px;
+      text-align: center;
+    }
+    th {
+      background-color: #f2f2f2;
+    }
+    input[type="text"], input[type="number"] {
+      border: none;
+      background: transparent;
+      font: inherit;
+      padding: 2px;
+      text-align: center;
+    }
+    input[type="text"]:focus, input[type="number"]:focus, select:focus {
+      outline: none;
+      background: #eef;
+    }
+    input.auto-width {
+      width: auto;
+      min-width: 100px;
+    }
+    select {
+      border: none;
+      background: transparent;
+      font: inherit;
+      color: inherit;
+    }
+    button.add-row {
+      background: none;
+      border: none;
+      font-size: 1.2em;
+      cursor: pointer;
+      margin-top: 5px;
+    }
+    button.remove-row {
+      background: none;
+      border: none;
+      font-size: 1em;
+      cursor: pointer;
+      color: red;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      body {
+        background-color: #1e1e1e;
+        color: #ddd;
+      }
+      table, th, td {
+        border-color: #444;
+      }
+      th {
+        background-color: #2a2a2a;
+      }
+      input, select {
+        color: #ddd;
+      }
+    }
+  </style>
+</head>
+<body>
+  <h2>Reagents</h2>
+  <table id="reagentTable">
+    <thead>
+      <tr>
+        <th>Name</th>
+        <th>MW</th>
+        <th>Density</th>
+        <th>Limiting?</th>
+        <th>Equivs</th>
+        <th>mmol</th>
+        <th>Mass (mg)</th>
+        <th>Volume (μL)</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody></tbody>
+  </table>
+  <button class="add-row" onclick="addRow()">＋</button>
+
+  <script>
+    const table = document.getElementById('reagentTable').getElementsByTagName('tbody')[0];
+    const instanceKey = new URLSearchParams(window.location.search).get("instance") || "default";
+    const STORAGE_KEY = `chem_table_${instanceKey}`;
+
+    function saveState() {
+      const rows = Array.from(table.rows).map(row => {
+        return Array.from(row.cells).slice(0, 8).map(cell => {
+          const input = cell.querySelector('input, select');
+          return input ? input.value : '';
+        });
+      });
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(rows));
+    }
+
+    function loadState() {
+      const saved = localStorage.getItem(STORAGE_KEY);
+      if (!saved) return;
+      JSON.parse(saved).forEach(values => {
+        addRow(values);
+      });
+    }
+
+    function createAutoWidthInput(type = 'text', value = '') {
+      const input = document.createElement('input');
+      input.type = type;
+      input.value = value;
+      input.className = 'auto-width';
+      resizeInput(input);
+      input.addEventListener('input', () => {
+        resizeInput(input);
+        handleInputChange(input.closest('tr'));
+        saveState();
+      });
+      return input;
+    }
+
+    function resizeInput(input) {
+      const span = document.createElement('span');
+      span.style.visibility = 'hidden';
+      span.style.whiteSpace = 'pre';
+      span.style.font = getComputedStyle(input).font;
+      span.textContent = input.value || input.placeholder || '';
+      document.body.appendChild(span);
+      input.style.width = (span.offsetWidth + 10) + 'px';
+      document.body.removeChild(span);
+    }
+
+    function addRow(values = []) {
+      const row = table.insertRow();
+
+      const nameInput = createAutoWidthInput('text', values[0] || '');
+      row.insertCell().appendChild(nameInput);
+      const mwInput = createAutoWidthInput('number', values[1] || '');
+      row.insertCell().appendChild(mwInput);
+      const densityInput = createAutoWidthInput('number', values[2] || '');
+      row.insertCell().appendChild(densityInput);
+
+      const limitingSelect = document.createElement('select');
+      ['Yes', 'No'].forEach(optionText => {
+        const option = document.createElement('option');
+        option.value = optionText;
+        option.textContent = optionText;
+        limitingSelect.appendChild(option);
+      });
+      limitingSelect.value = values[3] || 'No';
+      limitingSelect.addEventListener('change', () => updateLimiting(row));
+      row.insertCell().appendChild(limitingSelect);
+
+      const equivsInput = createAutoWidthInput('number', values[4] || '');
+      row.insertCell().appendChild(equivsInput);
+      const mmolInput = createAutoWidthInput('number', values[5] || '');
+      row.insertCell().appendChild(mmolInput);
+      const massInput = createAutoWidthInput('number', values[6] || '');
+      row.insertCell().appendChild(massInput);
+      const volumeInput = createAutoWidthInput('number', values[7] || '');
+      row.insertCell().appendChild(volumeInput);
+
+      const removeButton = document.createElement('button');
+      removeButton.textContent = '✕';
+      removeButton.className = 'remove-row';
+      removeButton.onclick = () => {
+        row.remove();
+        saveState();
+      };
+      row.insertCell().appendChild(removeButton);
+
+      [mwInput, densityInput, equivsInput, mmolInput, massInput, volumeInput].forEach(input => {
+        input.addEventListener('input', () => {
+          handleInputChange(row);
+          saveState();
+        });
+      });
+
+      handleInputChange(row);
+      if (limitingSelect.value === 'Yes') updateLimiting(row);
+    }
+
+    function updateLimiting(selectedRow) {
+      Array.from(table.rows).forEach(row => {
+        const select = row.cells[3].querySelector('select');
+        const equivInput = row.cells[4].querySelector('input');
+        if (row === selectedRow) {
+          select.value = 'Yes';
+          equivInput.value = 1;
+          equivInput.disabled = true;
+        } else {
+          select.value = 'No';
+          equivInput.disabled = false;
+        }
+        handleInputChange(row);
+        saveState();
+      });
+    }
+
+    function handleInputChange(row) {
+      const inputs = {
+        mw: parseFloat(row.cells[1].querySelector('input').value),
+        density: parseFloat(row.cells[2].querySelector('input').value),
+        equivs: row.cells[4].querySelector('input'),
+        mmol: row.cells[5].querySelector('input'),
+        mass: row.cells[6].querySelector('input'),
+        volume: row.cells[7].querySelector('input')
+      };
+
+      const isLimiting = row.cells[3].querySelector('select').value === 'Yes';
+
+      let limitingMmol = null;
+      Array.from(table.rows).forEach(r => {
+        if (r.cells[3].querySelector('select').value === 'Yes') {
+          const val = parseFloat(r.cells[5].querySelector('input').value);
+          if (!isNaN(val)) limitingMmol = val;
+        }
+      });
+
+      if (isLimiting) {
+        inputs.equivs.value = 1;
+        inputs.equivs.disabled = true;
+      }
+
+      const equivs = parseFloat(inputs.equivs.value);
+      const mmol = parseFloat(inputs.mmol.value);
+      const mass = parseFloat(inputs.mass.value);
+      const volume = parseFloat(inputs.volume.value);
+
+      if (!isLimiting && !isNaN(equivs) && limitingMmol !== null) {
+        inputs.mmol.value = (equivs * limitingMmol).toFixed(3);
+      }
+
+      const updatedMmol = parseFloat(inputs.mmol.value);
+
+      if (isNaN(updatedMmol) && !isNaN(mass) && !isNaN(inputs.mw)) {
+        inputs.mmol.value = ((mass) / inputs.mw).toFixed(3);
+      }
+
+      if (!isNaN(inputs.mw) && !isNaN(updatedMmol)) {
+        const newMass = (inputs.mw * updatedMmol);
+        inputs.mass.value = newMass.toFixed(3);
+      }
+
+      const updatedMass = parseFloat(inputs.mass.value);
+      if (!isNaN(inputs.density) && !isNaN(updatedMass)) {
+        inputs.volume.value = (updatedMass / inputs.density * 1000).toFixed(3);
+      }
+
+      [inputs.equivs, inputs.mmol, inputs.mass, inputs.volume].forEach(resizeInput);
+    }
+
+    window.onload = () => {
+      loadState();
+    };
+  </script>
+</body>
+</html>
